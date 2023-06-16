@@ -1,0 +1,7 @@
+packages:
+  # all packages in direct subdirs of packages/ 公共包
+  - 'packages/*'
+  # all packages in subdirs of components/ 公共组件
+  - 'components/**'
+  # all packages in subdirs of apps/ 所有应用
+  - 'apps/**'

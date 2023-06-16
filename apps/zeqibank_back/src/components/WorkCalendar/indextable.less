@@ -1,0 +1,83 @@
+.work-calendar-content{
+    display: flex;
+    width: 100px;
+    height: 200px;
+    overflow: scroll;
+    position: relative;
+    // table, thead, tbody ,tr,td, th{
+    //     border: 1px solid #ccc;
+    //     box-sizing: border-box;
+    //     // border-collapse: collapse;
+    //     border-inline: 1px solid #ccc;
+    //     background-color: #fff;
+    // }
+    .calendar-bar{
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        .calendar-bar-item{
+            position: absolute;
+            .left-resize{
+                float: left;
+            }
+            .right-resize{
+                float: right;
+            }
+        }
+    }
+    .calendar-right-content{
+        position: relative;
+        .bg-line{
+            display: flex;
+        }
+        .calendar-bar{
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            .calendar-bar-item{
+                position: absolute;
+                .left-resize{
+                    float: left;
+                }
+                .right-resize{
+                    float: right;
+                }
+            }
+        }
+    }
+}
+.sticky{
+    position: sticky;
+    left: 0;
+    // z-index: 99;
+    border: 1px solid #ccc;
+}
+
+.w-80{
+    width: 80px;
+}
+
+.h-20{
+    height: 20px;
+}
+
+.border{
+    border: 1px solid #ccc;
+}
+
+.background{
+    background: #fff;
+}
+
+.left-resize{
+    cursor: w-resize;
+}
+
+.right-resize{
+    cursor: e-resize;
+}
+
