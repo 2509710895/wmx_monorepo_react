@@ -2,7 +2,6 @@ import { Button, DatePicker, Form, Input, Modal, Select, TimePicker } from 'antd
 import { FC, memo, useEffect } from 'react';
 import useModal from '../../../hooks/useModal';
 import { useForm } from 'antd/es/form/Form';
-import FormBuilder from '../../FormBuilder';
 import dayjs from 'dayjs';
 // import 'dayjs/locale/zh-cn';
 // import locale from 'antd/es/date-picker/locale/zh_CN';

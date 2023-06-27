@@ -1,19 +1,114 @@
 .ant-card:not(.ant-card-bordered){
     box-shadow: none;
 }
-.work-calendar-container{
-    // padding: 24px;
-    // padding-top: 0px;
-    .ant-card-body{
-        padding-top: 0px;
+button {
+    position: relative;
+    outline: none;
+    border: 1px solid transparent;
+    line-height: 1.5714285714285714;
+    border-radius: 4px;
+    text-align: center;
+    white-space: nowrap;
+    font-weight: 400;
+    transition: all 0.5s;
+    cursor: pointer;
+}
+
+button.button-primary{
+    color: #fff;
+    background-color: #1677ff;
+    box-shadow: 0 2px 0 rgba(5, 145, 255, 0.1);
+
+    &:hover{
+        background-color: rgb(63,150,255);
     }
+
+    &:active{
+        background-color: #0858d9;
+    }
+
+    &::after{
+        content: '';
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        opacity: 0;
+        transition: all 0.5s;
+        box-shadow: 0 0 0 8px #0858d9;
+    }
+
+    &:active::after{
+        box-shadow: none;
+        opacity: 0.4;
+        transition: 0s;
+    }
+}
+
+button.button-save{
+    color: #389e0d;
+    border-color: #389e0d;
+    background-color: #fff;
+}
+
+button.button-danger{
+    color: #ff4d4f;
+    border-color: #ff4d4f;
+    background-color: #fff;
+
+    &:hover{
+        color: #ff7876;
+        border-color: #ff7876;
+    }
+
+    &:active{
+        color: #D9373F;
+        border-color: #D9373F;
+    }
+
+    &::after{
+        content: '';
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        opacity: 0;
+        transition: all 0.5s;
+        box-shadow: 0 0 0 8px #ff4d4f;
+    }
+
+    &:active::after{
+        box-shadow: none;
+        opacity: 0.4;
+        transition: 0s;
+    }
+
+}
+
+button.button-default{
+    border-color: #d9d9d9;
+    background-color: #fff;
+}
+
+button.button-disable{
+    cursor: not-allowed;
+    color: rgba(0, 0, 0, 0.25);
+    border-color: #d9d9d9;
+    background-color: rgba(0, 0, 0, 0.04);
+}
+
+.work-calendar-container{
+    padding: 24px;
+    padding-top: 0px;
+    
+    
+
     .work-calendar-tooltips{
         display: flex;
         justify-content: space-between;
         padding: 16px 0;
         // align-items: center;
         .work-calendar-tooltips-left{
-            flex: 1;
+            // flex: 1 1 0;
+            width: fit-content;
             .work-calendar-tooltips-left-title{
                 color: #000;
                 font-size: 16px;

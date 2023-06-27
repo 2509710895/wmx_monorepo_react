@@ -1,12 +1,8 @@
 import { FC, ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import dayjs from 'dayjs';
-import { cloneDeep } from 'lodash';
-import { Button, Card, Modal, Switch, Tag, } from 'antd';
-import { ExclamationCircleOutlined } from '@ant-design/icons';
+import {  Switch } from 'antd';
 import { classname } from '../../utils/classname';
 import { isNotWorkDay } from './utils';
-import AddModal from './addModal';
-import useModal from '../../hooks/useModal';
 
 import './index.less';
 /*
@@ -45,7 +41,7 @@ type ColumnProps = UserColumnProps | DayColumnProps
 
 type dateType = string | dayjs.Dayjs;
 
-interface CalendarProps {
+export interface CalendarProps {
     taskId: string;
     title: string;
     start?: number;
@@ -58,18 +54,32 @@ interface CalendarProps {
     endTime: string;
 }
 
-interface CalendarDataProps {
+export interface CalendarDataProps {
     id: string;
     user: string;
     calendars: CalendarProps[];
 }
 
-interface WorkcalendarProps {
+export interface WorkcalendarProps {
+    editing?: boolean;
+    hideNotWorkDay?: boolean;
     columns: ColumnProps[];
     data: CalendarDataProps[];
     changeData: (data: CalendarDataProps[]) => void;
     renderItem?: (item: CalendarProps & {isRealStart:boolean,isRealEnd:boolean}) => ReactNode;
     dayRender?: (item: DayColumnProps) => ReactNode;
+    extraRight?: ReactNode;
+    onChange?: ()=>void;
+    onMove?: ()=>void;
+    onContextMenu?: () => void;
+    contextMenu?:{
+        hasCopy:boolean;
+        onCopy:() => void;
+        hasDelete:boolean;
+        onDelete:() => void;
+    }
+    contextMenuRender?: () => ReactNode;
+
 }
 
 const getDateGap = (start: dateType, end: dateType, hideNotWorkDay: boolean) => {
@@ -92,14 +102,14 @@ const defaultRenderItem = (item: CalendarProps & {isRealStart:boolean,isRealEnd:
     const { title, isRealStart, isRealEnd } = item;
 
     return (
-        <Tag 
+        <div 
             className={classname("calendar-bar-item",{
                 "calendar-bar-item-notStart": !isRealStart,
                 "calendar-bar-item-notEnd": !isRealEnd,
             })}
             // bordered={false} 
             color="blue"
-        >{title}</Tag>
+        >{title}</div>
     )
 }
 
@@ -117,8 +127,9 @@ interface DefaultConfig {
     data: CalendarDataProps[];
     renderItem?: (item: CalendarProps & {isRealStart:boolean,isRealEnd:boolean}) => ReactNode;
     dayRender?: (item: DayColumnProps) => ReactNode;
-    onChange?: ()=>void;
-    onMove?: ()=>void;
+    onChange?: () => void;
+    onMove?: () => void;
+    onContextMenu?: () => void;
     contextMenu?:{
         copy:boolean;
         onCopy:() => void;
@@ -132,296 +143,59 @@ interface DefaultConfig {
     原则：通过鼠标移动结束的位置，来计算任务条执行操作后的left和width，再计算任务的start和end，再计算任务的开始时间和结束时间
 */
 
-const Workcalendar: FC<WorkcalendarProps> = (props) => {
+function useUpdateEffect(effect: React.EffectCallback, deps?: React.DependencyList) {
+    const mounted = useRef(false);
+    useEffect(() => {
+        if (!mounted.current) {
+            mounted.current = true;
+            return;
+        }
+        return effect();
+    }, deps);
+    return mounted.current;
+}
+
+const Workcalendar: FC<WorkcalendarProps & {
+
+}> = (props) => {
 
     const { 
+        editing:defaultEditing = true,
+        hideNotWorkDay:defaultHideNotWorkDay = false,
         columns,
         data,
         changeData,
         renderItem = defaultRenderItem,
         dayRender = defaultDayRender,
+        extraRight = null,
+        onChange = () => {},
+        onMove = () => {},
+        // onContextMenu,
+        contextMenu= {
+            hasCopy:false,
+            onCopy:()=>{},
+            hasDelete:false,
+            onDelete:()=>{},
+        },
+        // contextMenuRender,
         ...rest
     } = props;
 
-    const [hideNotWorkDay, setHideNotWorkDay] = useState(false);
+    const { hasCopy, onCopy,hasDelete,onDelete } = contextMenu;
 
-    const addModal = useModal('work-calendar-add-modal');
+    const [hideNotWorkDay, setHideNotWorkDay] = useState(defaultHideNotWorkDay);
 
-    const [editing, setEditing] = useState(false);
-    const [originData, setOriginData] = useState<any[]>([]);
-    const [changeStack, setChangeStack] = useState<any[]>([]);
-    const [changeTasks, setChangeTasks] = useState<any[]>([]);
+    const [editing, setEditing] = useState(defaultEditing);
 
-    console.log('wmx rollback',changeStack);
+    // console.log('wmx rollback',changeStack);
 
-    const rollback = () => {
-        if (changeStack.length > 0) {
-            const change = changeStack.pop();
-            const { type, old, new:newTask } = change;
-            const { id:oldId, calendar:oldCalendar } = old;
-            const { id:newId, calendar:newCalendar } = newTask;
-            if (type === 'change') {
-                const newData = data.map((item:CalendarDataProps) => {
-                    if (item.id === newId) {
-                        item.calendars.splice(
-                            item.calendars.findIndex((calendar:CalendarProps) => calendar.taskId === newCalendar.taskId),
-                            1,
-                            oldCalendar,
-                        )
-                    }
-                    return item;
-                })
-                changeData(newData);
-            } else if (type === 'add') {
-                // TODO: 未完成
-            } else if (type === 'delete') {
-                const newData = data.map((item:CalendarDataProps) => {
-                    if (item.id === oldId) {
-                        item.calendars.push(oldCalendar);
-                    }
-                    return item;
-                })
-                changeData(newData);
-            } else if (type === 'copy') {
-                const newData = data.map((item:CalendarDataProps) => {
-                    if (item.id === newId) {
-                        item.calendars = item.calendars.filter((calendar:CalendarProps) => calendar.taskId !== newCalendar.taskId);
-                    }
-                    return item;
-                })
-                changeData(newData);
-            } else if (type === 'move') {
-                // 先删除 newId 的 newCalendar，再添加 oldId 的 oldCalendar
-                const preChange = changeStack.pop();
-                const { old } = preChange;
-                const { id:preOldId, calendar:preOldCalendar } = old;
-                const newData = data.map((item:CalendarDataProps) => {
-                    if (item.id === newId) {
-                        item.calendars = item.calendars.filter((calendar:CalendarProps) => calendar.taskId !== newCalendar.taskId);
-                    }
-                    if (item.id === preOldId) {
-                        item.calendars.push(preOldCalendar);
-                    }
-                    return item;
-                })
-                console.log('wmx newData', newData);
-                changeData(newData);
-            }
+    useUpdateEffect(() => {
+        setEditing(defaultEditing);
+    }, [defaultEditing]);
 
-        }
-    }
-
-    const addTask = (id:string,taskInfo:CalendarProps) => {
-        console.log('addTask', id, taskInfo);
-        let newData = cloneDeep(data);
-        newData = newData.map((item:CalendarDataProps) => {
-            if (item.id === id) {
-                // item.calendars.push(taskInfo);
-                item.calendars = [...item.calendars, taskInfo];
-            }
-            return item;
-        })
-        console.log("newData", newData);
-        changeData(newData);
-    }
-
-    const changeTask = (id:string, taskId:string, direction:string,days:number) => {
-        console.log('changeTask', id, taskId, direction,days);
-        
-        const newData = data.map((item: CalendarDataProps, itemIndex: number) => {
-            if (item.id === id) {
-                const newCalendars = item.calendars.map((calendar: CalendarProps, calendarIndex: number) => {
-                    if (calendar.taskId === taskId) {
-                        let { startTime, endTime, start=0, end=0 } = formatData[itemIndex].calendars[calendarIndex]; 
-                        if (direction === 'left') {
-                            if(days < 0) {
-                                start = start + days;
-                                startTime = dayColumns[start].date;
-                                // let oldStartTime = dayjs(startTime);
-                                // startTime = dayjs(startTime).subtract(-days, 'day').format('YYYY-MM-DD');
-                                // if (hideNotWorkDay){
-                                //     for(let i = 1; i <= -days; i++) {
-                                //         if(isNotWorkDay(oldStartTime.subtract(i, 'day'))) {
-                                //             startTime = dayjs(startTime).subtract(1, 'day').format('YYYY-MM-DD');
-                                //         }
-                                //     }
-                                // }
-                            }else if (days > 0) {
-                                start = start + days;
-                                startTime = dayColumns[start].date;
-                                // let oldStartTime = dayjs(startTime);
-                                // startTime = oldStartTime.add(days, 'day').format('YYYY-MM-DD');
-                                // if (hideNotWorkDay){
-                                //     for(let i = 1; i <= days; i++) {
-                                //         if(isNotWorkDay(oldStartTime.add(i, 'day'))) {
-                                //             startTime = dayjs(startTime).add(1, 'day').format('YYYY-MM-DD');
-                                //         }
-                                //     }
-                                // }
-                            }
-                            const newCalendar = { ...calendar, startTime };
-                            // 将变化推入栈中
-                            const change = {
-                                type: 'change',
-                                old: { calendar, id },
-                                new: { calendar: newCalendar, id },
-                            }
-                            setChangeStack([...changeStack, change]);
-                            return newCalendar
-                        } else if (direction === 'right') {
-                            if(days < 0) {
-                                end = end + days;
-                                endTime = dayColumns[end].date;
-                                // let oldEndTime = dayjs(endTime);
-                                // endTime = oldEndTime.subtract(-days, 'day').format('YYYY-MM-DD');
-                                // if (hideNotWorkDay){
-                                //     for(let i = 1; i <= -days; i++) {
-                                //         if(isNotWorkDay(oldEndTime.subtract(i, 'day'))) {
-                                //             endTime = dayjs(endTime).subtract(1, 'day').format('YYYY-MM-DD');
-                                //         }
-                                //     }
-                                // }
-                            }else if (days > 0) {
-                                // days 可真实反应出移动的列数 然后通过列数找到对应的日期 将日期赋值给 endTime
-                                end = end + days;
-                                endTime = dayColumns[end].date;
-                                // let oldEndTime = dayjs(endTime);
-                                // endTime = oldEndTime.add(days, 'day').format('YYYY-MM-DD');
-                                // if (hideNotWorkDay){
-                                //     for(let i = 1; i <= days; i++) {
-                                //         if(isNotWorkDay(oldEndTime.add(i, 'day'))) {
-                                //             endTime = dayjs(endTime).add(1, 'day').format('YYYY-MM-DD');
-                                //         }
-                                //     }
-                                // }
-                            }
-                            const newCalendar = { ...calendar, endTime };
-                            // 将变化推入栈中
-                            const change = {
-                                type: 'change',
-                                old: { calendar, id },
-                                new: { calendar: newCalendar, id },
-                            }
-                            setChangeStack([...changeStack, change]);
-                            return newCalendar
-                        }
-                    }
-                    return calendar;
-                })
-                // console.log('wmx newCalendars', newCalendars);
-                return {
-                    ...item,
-                    calendars: newCalendars
-                }
-            }
-            return item;
-        })
-        console.log("newData", newData);
-        changeData(newData);
-    }
-
-    const deleteTask = (id:string, taskId:string) => {
-        console.log('deleteTask', id, taskId);
-        let deletedTask:CalendarProps | null = null;
-        const newData = data.map((item:CalendarDataProps) => {
-            if (id === item.id) {
-                const newCalendars = item.calendars.filter((calendar:CalendarProps) => {
-                    if (calendar.taskId === taskId) {
-                        deletedTask = calendar;
-                        return false;
-                    }
-                    return true;
-                })
-                return {
-                    ...item,
-                    calendars: newCalendars
-                }
-            }
-            return item;
-        })
-        console.log("newData", newData);
-        // 将变化推入栈中
-        const change = {
-            type: 'delete',
-            old: { calendar: deletedTask, id },
-            new: { calendar: null, id }
-        }
-        const newChangeStack = [...changeStack, change];
-        setChangeStack(newChangeStack);
-        changeData(newData);
-        return ([newData,newChangeStack,deletedTask] as [CalendarDataProps[],any[],CalendarProps | null]);
-    }
-                        
-    const moveTask = (
-        data:CalendarDataProps[], 
-        deletedTask:CalendarProps, 
-        userIndex:number, 
-        changedStart:number, 
-        changedEnd:number,
-        newChangeStack:any[]
-    ) => {
-        console.log('moveTask', changedStart, changedEnd, userIndex, deletedTask);
-        const newData = data.map((item:CalendarDataProps, index:number) => {
-            if (index === userIndex) {
-                const { 
-                    start = 0, 
-                    end = 0, 
-                    startTime, 
-                    endTime 
-                } = deletedTask;
-                const realGap = dayjs(endTime).diff(dayjs(startTime), 'day');
-                changedEnd = changedStart + realGap;
-                if (hideNotWorkDay) {
-                    // 期间有一天是非工作日，就减少一天
-                    let newStartTime = dayColumns[changedStart].date;
-                    for(let i = 0; i <= realGap; i++) {
-                        if(isNotWorkDay(dayjs(newStartTime).add(i, 'day'))) {
-                            changedEnd = changedEnd - 1;
-                        }
-                    }
-                }
-                let newStartTime = dayColumns[changedStart].date;
-                let newEndTime = dayjs(newStartTime).add(realGap, 'day').format('YYYY-MM-DD');
-                const newCalendar = {
-                    ...deletedTask,
-                    start: changedStart,
-                    end: changedEnd,
-                    startTime: newStartTime,
-                    endTime: newEndTime,
-                }
-                item.calendars.push(newCalendar);
-                const change = {
-                    type: 'move',
-                    old: { calendar: null, id: item.id },
-                    new: { calendar: newCalendar, id: item.id }
-                }
-                newChangeStack.push(change);
-                setChangeStack(newChangeStack);
-            }
-            return item;
-        })
-        console.log("newData", newData);
-        changeData(newData);
-    }
-
-    const copyTask = (id:string, taskInfo:CalendarProps) => {
-        console.log('copyTask');
-        const newData = data.map((item:CalendarDataProps) => {
-            if (item.id === id) {
-                const newCalendar = { ...taskInfo, taskId: `copy-${dayjs().valueOf()}` };
-                item.calendars.push(newCalendar);
-                const change = {
-                    type: 'copy',
-                    old: { calendar: null, id },
-                    new: { calendar: newCalendar, id }
-                }
-                setChangeStack([...changeStack, change]);
-            }
-            return item;
-        })
-        console.log("newData", newData);
-        changeData(newData);
-    }
+    useUpdateEffect(() => {
+        setHideNotWorkDay(defaultHideNotWorkDay);
+    }, [defaultHideNotWorkDay]);    
 
     // 格子的宽度
     const cellWidth = 200;
@@ -504,18 +278,18 @@ const Workcalendar: FC<WorkcalendarProps> = (props) => {
                 let finishTime = dayjs(endTime);
                 // TODO
                 let realDuration = finishTime.diff(beginTime, 'day') + 1;
-                if (hideNotWorkDay) {
-                    // 判断开始时间到结束时间之间有多少个非工作日
-                    let notWorkDayCount = 0;
-                    let tempTime = beginTime;
-                    while (tempTime.isBefore(finishTime)) {
-                        if (isNotWorkDay(beginTime)) {
-                            notWorkDayCount++;
-                        }
-                        tempTime = tempTime.add(1, 'day');
-                    }
-                    realDuration -= notWorkDayCount;
-                }
+                // if (hideNotWorkDay) {
+                //     // 判断开始时间到结束时间之间有多少个非工作日
+                //     let notWorkDayCount = 0;
+                //     let tempTime = beginTime;
+                //     while (tempTime.isBefore(finishTime)) {
+                //         if (isNotWorkDay(beginTime)) {
+                //             notWorkDayCount++;
+                //         }
+                //         tempTime = tempTime.add(1, 'day');
+                //     }
+                //     realDuration -= notWorkDayCount;
+                // }
 
                 let isRealStart = true
                 let isRealEnd = true
@@ -582,89 +356,19 @@ const Workcalendar: FC<WorkcalendarProps> = (props) => {
 
     console.log("wmx layout", rowHeights, formatData, headerRef.current?.clientHeight);
 
-    const showCancelConfirm = () => {
-        Modal.confirm({
-            title: '您确定要取消修改吗？',
-            icon: <ExclamationCircleOutlined/>,
-            okText: '确定',
-            cancelText: '取消',
-            onOk() {
-                changeData(originData)
-                setChangeStack([]);
-                setChangeTasks([]);
-                setEditing(false);
-            },
-            onCancel() {
-            },
-        });
-    }
+    
 
     return (
         <>
-        <Card className='work-calendar-container' bordered={false}>
+        <div className='work-calendar-container'>
             {/* <h1>Workcalendar</h1> */}
             <div className='work-calendar-tooltips'>
                 <div className='work-calendar-tooltips-left'>
                     <div className='work-calendar-tooltips-left-title'>工作日历</div>
                 </div>
                 <div className='work-calendar-tooltips-right'>
-                    <div className='work-calendar-tooltips-right-hide'>
-                        隐藏非工作日：
-                        <Switch size='small' checked={hideNotWorkDay} onChange={(checked)=>{
-                            console.log("wmx setHideNotWorkDay",checked);
-                            setHideNotWorkDay(checked);
-                        }} />
-                    </div>
-                    <Button 
-                        size='small' 
-                        type='primary'
-                        style={{
-                            marginRight: 12,
-                        }}
-                        onClick={()=>{
-                            setOriginData(data);
-                            setEditing(true);
-                        }}
-                    >编辑</Button>
-                    <Button 
-                        disabled={ !editing }
-                        size='small' 
-                        style={!editing ? {marginRight: 12} : {
-                            marginRight: 12,
-                            color: '#389e0d',
-                            borderColor: '#389e0d',
-                        }}
-                        onClick={()=>{
-                            
-                        }}
-                    >保存</Button>
-                    <Button 
-                        disabled={ !editing || !changeStack.length }
-                        size='small' 
-                        // type='primary'
-                        danger
-                        style={{
-                            marginRight: 12,
-                        }}
-                        onClick={()=>{
-                            rollback()
-                        }}
-                    >回退</Button>
-                    <Button 
-                        disabled={ !editing }
-                        size='small' 
-                        style={{
-                            marginRight: 12,
-                        }}
-                        onClick={showCancelConfirm}
-                    >取消</Button>
-                    <Button 
-                        size='small' 
-                        type='primary'
-                        onClick={()=>{
-                            addModal.show({open: true,data,addTask})
-                        }}
-                    >新增</Button>
+                    
+                    {extraRight}
                 </div>
                 
             </div>
@@ -677,24 +381,6 @@ const Workcalendar: FC<WorkcalendarProps> = (props) => {
                 <div ref={headerRef} className='calendar-head'>
                     <div className='calendar-head-line'>
                         {/* 头map */}
-                        {/* {
-                            columns.map(item => {
-                                const { key, fixed} = (item as UserColumnProps);
-                                return (
-                                    <div key={key} className='calendar-head-cell'
-                                        style={{
-                                            width: fixed === 'left' ? 100 : cellWidth,
-                                            left: fixed === 'left' ? 0 : undefined,
-                                            zIndex: fixed === 'left' ? 99 : 98,
-                                            top: '1px',
-                                            backgroundColor: fixed === 'left' ? '#fff' : '#fafafa',
-                                        }}
-                                    >
-                                        {fixed === 'left' ? defaultDayRender(item as DayColumnProps) : dayRender(item as DayColumnProps)}
-                                    </div>
-                                )
-                            })
-                        } */}
                         {
                             userColumns.map(item => {
                                 const { key } = item;
@@ -802,10 +488,10 @@ const Workcalendar: FC<WorkcalendarProps> = (props) => {
                                 const left = start * cellWidth + cellLeft;
                                 const width = (end - start + 1) * cellWidth - 20;
                                 const top = rowHeights[index].top + pre * (barHeight + barMargin) + cellTop;
-                                if (!isRealStart || !isRealEnd) {
-                                    const { realDuration } = task;
+                                const { realDuration } = task;
+                                if ((end - start + 1) !== realDuration ) {
                                     eles.push(
-                                        <div key={`fake_${task.taskId}`} className='calendar-bar'
+                                        <div key={`fake_${task.taskId}_${realDuration}_${start}_${end}`} className='calendar-bar'
                                             id={`${task.taskId}`}
                                             style={{
                                                 left:"0px",
@@ -827,6 +513,9 @@ const Workcalendar: FC<WorkcalendarProps> = (props) => {
                                             height: barHeight,
                                         }}
                                         onContextMenu={(e) => {
+                                            if (!editing) {
+                                                return;
+                                            }
                                             e.preventDefault();
                                             const { offsetX, offsetY } = e.nativeEvent;
                                             const target = e.target as HTMLElement;
@@ -865,12 +554,12 @@ const Workcalendar: FC<WorkcalendarProps> = (props) => {
                                             // 未展示完全的任务条，需要设置一个假的任务条，用于拖动时的展示 
                                             // 过于右的情况通过 left 可解决；过于左的情况 left 必定小于 0 需要判断 left + width 来确定
                                             console.log("start", e);
-                                            if(!isRealEnd || !isRealStart){
+                                            if((end - start + 1) !== realDuration ){
                                                 console.log("wmx",);
                                                 let { offsetX, offsetY } = e.nativeEvent;
                                                 const fakeTarget = document.getElementById(`${task.taskId}`);
                                                 if (!isRealStart) {
-                                                    const { realDuration } = task;
+                                                    
                                                     offsetX += (realDuration - (end - start) - 1) * cellWidth; 
                                                     console.log("wmx !isRealStart",end,start,realDuration);
                                                 }
@@ -927,6 +616,7 @@ const Workcalendar: FC<WorkcalendarProps> = (props) => {
                                             if (left < 0) {
                                                 // changedStart = 0;
                                                 // changedEnd = changedStart + cellNum;
+                                                console.log("wmx 过于左");
                                                 return 
                                             }
                                             // 过于右，以 lastDate 为结束
@@ -934,11 +624,15 @@ const Workcalendar: FC<WorkcalendarProps> = (props) => {
                                             if(left > maxWidth) {
                                                 // changedEnd = dayColumns.length - 1;
                                                 // changedStart = changedEnd - cellNum;
+                                                console.log("wmx 过于右");
                                                 return 
                                             }
-                                            const [newData,newChangeStack,deletedTask] = deleteTask(item.id, task.taskId);
-                                            if(!newData || !deletedTask) return;
-                                            moveTask(newData, deletedTask, userIndex, changedStart, changedEnd,newChangeStack);
+                                            // const [newData,newChangeStack,deletedTask] = onDelete(item.id, task.taskId);
+                                            // if(!newData || !deletedTask) return;
+                                            onMove(item.id, task.taskId, userIndex, changedStart, changedEnd,hideNotWorkDay,dayColumns);
+
+                                            // 传 旧user 旧任务 新user left 
+
                                             // target.style.left = `${left}px`;
                                             // target.style.top = `${top}px`;
                                         }}
@@ -1007,7 +701,7 @@ const Workcalendar: FC<WorkcalendarProps> = (props) => {
                                                     }
                                                     // parent.style.left = originLeft + (cellWidth * cellNum) + 'px';
                                                     // parent.style.width = originWidth - (cellWidth * cellNum) + 'px';
-                                                    changeTask(item.id, task.taskId, 'left', cellNum);
+                                                    onChange(item.id, task.taskId, 'left', cellNum,formatData,dayColumns);
                                                 }
                                             }}
                                         >
@@ -1073,7 +767,7 @@ const Workcalendar: FC<WorkcalendarProps> = (props) => {
                                                         return
                                                     }
                                                     // parent.style.width = originWidth + (cellWidth * cellNum) + 'px';
-                                                    changeTask(item.id, task.taskId,"right",cellNum);
+                                                    onChange(item.id, task.taskId,"right",cellNum,formatData,dayColumns);
                                                 }
                                             }}
                                         >
@@ -1092,41 +786,39 @@ const Workcalendar: FC<WorkcalendarProps> = (props) => {
                         top: contextMenuPosition.y,
                         transform: `translate(-50%,0)`
                     }}>
-                        <Card>
+                        <div style={{
+                            padding: "5px",
+                            backgroundColor: "#fff",
+                            borderRadius: "5px",
+                            border: "1px solid #f0f0f0"
+                        }}>
                             <div style={{ display:"flex", flexDirection:"column" }}>
-                                <Button
-                                    size='small' 
-                                    type='primary' 
+                                <button className='button-primary'
                                     style={{
-                                        marginBottom: '10px'
+                                        marginBottom: '8px'
                                     }}
                                     onClick={() => {
                                         setContextMenuVisible(false);
                                         // 直接在当前行 插入一个任务
-                                        copyTask(selectedTask.id, selectedTask.taskInfo);
+                                        onCopy(selectedTask.id, selectedTask.taskInfo);
                                     }}
-                                >
-                                    复制
-                                </Button>
-                                <Button
-                                    size='small' 
-                                    danger
+                                >复 制</button>
+                                <button className='button-danger'
                                     onClick={() => {
                                         setContextMenuVisible(false);
                                         // 删除当前任务
                                         console.log("delete task", selectedTask);
-                                        deleteTask(selectedTask.id, selectedTask.taskId);
+                                        onDelete(selectedTask.id, selectedTask.taskId);
                                     }}
-                                >
-                                    删除
-                                </Button>
+                                >删 除</button>
                             </div>
-                        </Card>
+                        </div>
                     </div>
                 </div>
             </div>
-        </Card>
-        <AddModal name='work-calendar-add-modal' />
+        </div>
+        
+        
         <div
             draggable={true}
             style={{
@@ -1143,6 +835,13 @@ const Workcalendar: FC<WorkcalendarProps> = (props) => {
                 e.dataTransfer.setDragImage(fakeTarget, offsetX, offsetY);
             }}
         ></div>
+        <br></br>
+        <button className='button-primary'>编 辑</button>
+        <button className='button-save'>保 存</button>
+        <button className='button-danger'>回 退</button>
+        <button className='button-default'>取 消</button>
+        <button className='button-primary'>新 增</button>
+        <button className='button-disable'>重 置</button>
         </>
     );
 };
